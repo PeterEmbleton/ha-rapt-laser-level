@@ -21,8 +21,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # No licence by choice; HACS only requires one for the default list.
-          ignore: license
 
   tests:
     runs-on: ubuntu-latest

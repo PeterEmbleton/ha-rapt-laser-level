@@ -94,3 +94,7 @@ python -m pytest -q tests
 ```
 
 CI runs the tests, Home Assistant's `hassfest` validator and the HACS validator on every push and pull request.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). The RAPT logo in `brand/` belongs to its owner and isn't covered by this licence.
