@@ -1,0 +1,53 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Add a RAPT laser level sensor",
+        "description": "Pick a sensor HA can hear, or type its Bluetooth address.",
+        "data": {
+          "address": "Sensor"
+        }
+      },
+      "keg": {
+        "title": "Keg settings for {address}",
+        "description": "Empty distance is what the sensor reads with the keg empty (KegLand default 560 mm for 19 L, 290 mm for 9.5 L). Full distance is the reading at full (about 26 mm under pressure).",
+        "data": {
+          "keg_name": "Name (e.g. Tap 4 - Beer)",
+          "capacity_l": "Capacity (L)",
+          "empty_distance_mm": "Empty distance (mm)",
+          "full_distance_mm": "Full distance (mm)",
+          "drink_type": "Drink (blank = use the product page title)",
+          "product_url": "Product page URL (optional; picture is found automatically)",
+          "image_url": "Image URL (optional; overrides the product page picture)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This sensor is already set up.",
+      "not_supported": "This doesn't look like a RAPT laser level sensor."
+    },
+    "error": {
+      "invalid_url": "That doesn't look like a web address."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Keg settings",
+        "data": {
+          "keg_name": "Name",
+          "capacity_l": "Capacity (L)",
+          "empty_distance_mm": "Empty distance (mm)",
+          "full_distance_mm": "Full distance (mm)",
+          "drink_type": "Drink (blank = use the product page title)",
+          "product_url": "Product page URL (optional; picture is found automatically)",
+          "image_url": "Image URL (optional; overrides the product page picture)"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "That doesn't look like a web address."
+    }
+  }
+}
