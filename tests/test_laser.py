@@ -43,9 +43,7 @@ async def test_entry(hass: HomeAssistant):
         options={"keg_name": "Tap 4 - Beer", "capacity_l": 19.0, "empty_distance_mm": 560, "full_distance_mm": 26})
     entry.add_to_hass(hass)
     with patch("homeassistant.components.bluetooth.async_register_callback", fake_register), \
-         patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None), \
-         patch("homeassistant.loader.Integration.dependencies", new=[]), \
-         patch("homeassistant.loader.Integration.manifest_json_dependencies", new=[], create=True):
+         patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
     st = hass.states.get("sensor.tap_4_beer_level")
