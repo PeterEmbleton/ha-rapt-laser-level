@@ -14,7 +14,7 @@ PAGE = '''<html><head>
 def test_parse():
     img, title = parse_meta(PAGE, "https://kegland.com.au/products/x")
     assert img == "https://kegland.com.au/cdn/shop/files/KB31873-OrangeStripeBrewedGingerBeer-Diet-Jamaican-RTK-01-Base-01.jpg?v=1743137780"
-    assert title.startswith("Diet Orange Stripe")
+    assert title == "Diet Orange Stripe Brewed Ginger Beer - Jamaican"
     assert parse_meta('<meta property="og:image" content="/a.jpg">', "https://x.com/p/1")[0] == "https://x.com/a.jpg"
     assert parse_meta("<html></html>", "https://x.com") == (None, None)
 
@@ -158,3 +158,14 @@ async def test_lookup_non_shopify_reads_page(hass: HomeAssistant, aioclient_mock
     img, _ = await async_lookup(hass, "https://example.com/beer/1")
     assert img.startswith("https://kegland.com.au/cdn/")
     assert aioclient_mock.call_count == 1
+
+
+def test_tidy_title():
+    from custom_components.rapt_laser_level.drink import tidy_title
+    assert tidy_title("Black Angel's Tennessee Bourbon and Cola Ready to Keg Kit") == "Black Angel's Tennessee Bourbon and Cola"
+    assert tidy_title("Hard FUKUSODA Yuzu - Zero Sugar - Ready to Keg Kit") == "Hard FUKUSODA Yuzu - Zero Sugar"
+    assert tidy_title("Diet Orange Stripe Brewed Ginger Beer - Jamaican - Ready To Keg Kit") == "Diet Orange Stripe Brewed Ginger Beer - Jamaican"
+    assert tidy_title("Orange Stripe Ginger Beer - RTK") == "Orange Stripe Ginger Beer"
+    assert tidy_title("Hartwork Pale Ale") == "Hartwork Pale Ale"
+    assert tidy_title("Ready to Keg Kit") == "Ready to Keg Kit"  # never empty
+    assert tidy_title(None) is None

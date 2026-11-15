@@ -23,7 +23,7 @@ from .const import (
     RAPT_MANUFACTURER_ID,
     STALE_AFTER_S,
 )
-from .drink import async_lookup, clean_product_url
+from .drink import async_lookup, clean_product_url, tidy_title
 from .parser import LaserReading, decode
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
         if cached.get("url") == state.product_url and cached.get("image"):
             # Looked up before: don't hit the shop on every restart (KegLand
             # rate-limits with 429s).
-            image, title = cached["image"], cached.get("title")
+            image, title = cached["image"], tidy_title(cached.get("title"))
         else:
             image, title = await async_lookup(hass, state.product_url)
             if image:
