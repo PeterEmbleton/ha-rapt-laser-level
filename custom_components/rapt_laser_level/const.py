@@ -15,6 +15,9 @@ CONF_DRINK = "drink_type"
 CONF_PRODUCT_URL = "product_url"
 CONF_IMAGE_URL = "image_url"
 
+# entry.data key holding the last successful product-page lookup.
+CACHE_KEY = "drink_lookup"
+
 # KegLand defaults for a 19 L ball-lock keg (see YDraig docs).
 DEFAULT_CAPACITY_L = 19.0
 DEFAULT_EMPTY_MM = 560

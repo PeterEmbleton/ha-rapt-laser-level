@@ -90,3 +90,34 @@ def test_discovery_filter():
     assert _is_rapt_laser(mk(None, bytes.fromhex("5054514301")))
     assert _is_rapt_laser(mk("EE:90", bytes.fromhex("5054a1ee90a80df5384100ef010ae803ca0802")))
     assert not _is_rapt_laser(mk("RAPT Pill", b"PT\x02" + bytes(20)))
+
+
+async def test_lookup_is_cached(hass: HomeAssistant):
+    opts = {"keg_name": "Tap 3", "product_url": "https://kegland.com.au/products/x",
+            "capacity_l": 19.0, "empty_distance_mm": 560, "full_distance_mm": 26}
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
+    entry.add_to_hass(hass)
+    lookup = AsyncMock(return_value=("https://img/x.jpg", "Ginger"))
+    with patch("homeassistant.components.bluetooth.async_register_callback", return_value=lambda: None), \
+         patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None), \
+         patch("custom_components.rapt_laser_level.async_lookup", lookup):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.data["drink_lookup"]["image"] == "https://img/x.jpg"
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+    lookup.assert_awaited_once()  # second setup used the cache
+    assert hass.states.get("sensor.tap_3_drink").attributes["entity_picture"] == "https://img/x.jpg"
+
+
+async def test_remove_entry_allows_rediscovery(hass: HomeAssistant):
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options={})
+    entry.add_to_hass(hass)
+    with patch("homeassistant.components.bluetooth.async_register_callback", return_value=lambda: None), \
+         patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None), \
+         patch("homeassistant.components.bluetooth.async_rediscover_address") as rediscover:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+    rediscover.assert_called_once_with(hass, ADDR)

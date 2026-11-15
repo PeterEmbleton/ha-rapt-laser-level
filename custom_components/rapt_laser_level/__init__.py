@@ -19,6 +19,7 @@ from .const import (
     CONF_DRINK,
     CONF_IMAGE_URL,
     CONF_PRODUCT_URL,
+    CACHE_KEY,
     RAPT_MANUFACTURER_ID,
     STALE_AFTER_S,
 )
@@ -67,7 +68,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
     state.product_url = (opts.get(CONF_PRODUCT_URL) or "").strip() or None
     state.image_url = (opts.get(CONF_IMAGE_URL) or "").strip() or None
     if state.product_url and (state.image_url is None or state.drink is None):
-        image, title = await async_lookup(hass, state.product_url)
+        cached = entry.data.get(CACHE_KEY) or {}
+        if cached.get("url") == state.product_url and cached.get("image"):
+            # Looked up before: don't hit the shop on every restart (KegLand
+            # rate-limits with 429s).
+            image, title = cached["image"], cached.get("title")
+        else:
+            image, title = await async_lookup(hass, state.product_url)
+            if image:
+                hass.config_entries.async_update_entry(
+                    entry,
+                    data={
+                        **entry.data,
+                        CACHE_KEY: {"url": state.product_url, "image": image, "title": title},
+                    },
+                )
         state.image_url = state.image_url or image
         state.drink = state.drink or title
 
@@ -138,6 +153,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
 
 async def _async_reload(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> None:
+    """Let HA offer the sensor for discovery again once its entry is deleted."""
+    bluetooth.async_rediscover_address(hass, entry.data[CONF_ADDRESS].upper())
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> bool:
