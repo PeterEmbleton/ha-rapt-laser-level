@@ -30,3 +30,7 @@ STALE_AFTER_S = 150 * 60
 # Background drink-picture lookup: wait this long (seconds) before each retry
 # after a temporary failure such as KegLand's 429. Seven attempts in all.
 LOOKUP_RETRY_DELAYS = (15 * 60, 60 * 60, 3 * 3600, 6 * 3600, 12 * 3600, 24 * 3600)
+
+# While pouring the sensor sends about one reading a second (status 3). This
+# long with no new reading means the pour has finished.
+POUR_ENDED_AFTER_S = 30
