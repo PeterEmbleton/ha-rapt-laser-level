@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import aiohttp
@@ -101,7 +102,22 @@ def shopify_js_url(url: str) -> str | None:
 
 
 class _RateLimited(Exception):
-    """The site answered 429; stop asking."""
+    """The site answered 429; stop asking for now."""
+
+    def __init__(self, url: str, retry_after: float | None) -> None:
+        super().__init__(url)
+        self.retry_after = retry_after
+
+
+class _Transient(Exception):
+    """A failure worth trying again later (timeout, 5xx, network)."""
+
+
+def _retry_after(resp: aiohttp.ClientResponse) -> float | None:
+    try:
+        return max(0.0, float(resp.headers.get("Retry-After", "")))
+    except ValueError:
+        return None
 
 
 async def _get(session: aiohttp.ClientSession, url: str, as_json: bool):
@@ -109,15 +125,28 @@ async def _get(session: aiohttp.ClientSession, url: str, as_json: bool):
         url, timeout=aiohttp.ClientTimeout(total=15), headers=_HEADERS
     ) as resp:
         if resp.status == 429:
-            raise _RateLimited(url)
+            raise _RateLimited(url, _retry_after(resp))
+        if resp.status >= 500:
+            raise _Transient(f"HTTP {resp.status}")
         resp.raise_for_status()
         if as_json:
             return await resp.json(content_type=None), str(resp.url)
         return await resp.text(errors="replace"), str(resp.url)
 
 
-async def async_lookup(hass: HomeAssistant, url: str) -> tuple[str | None, str | None]:
-    """Find a product's (image_url, title). Never raises.
+@dataclass
+class LookupResult:
+    """Outcome of one lookup attempt."""
+
+    image: str | None = None
+    title: str | None = None
+    retry: bool = False  # worth trying again later
+    retry_after: float | None = None  # seconds the site asked us to wait
+    error: str | None = None
+
+
+async def async_lookup_once(hass: HomeAssistant, url: str) -> LookupResult:
+    """Try once to find a product's picture and title. Never raises.
 
     Shopify links (KegLand) use the small /products/<handle>.js feed first:
     one request, and its picture lives on cdn.shopify.com, so showing it
@@ -126,30 +155,34 @@ async def async_lookup(hass: HomeAssistant, url: str) -> tuple[str | None, str |
     """
     session = async_get_clientsession(hass)
     url = clean_product_url(url)
-    err: Exception | None = None
     try:
         if js_url := shopify_js_url(url):
             try:
                 data, _ = await _get(session, js_url, as_json=True)
                 image, title = parse_shopify_js(data, url)
                 if image:
-                    return image, title
-            except _RateLimited:
+                    return LookupResult(image, title)
+            except (_RateLimited, _Transient, aiohttp.ClientConnectionError, TimeoutError):
                 raise
             except Exception as js_err:  # noqa: BLE001
                 _LOGGER.debug("Shopify feed %s failed: %s", js_url, js_err)
         page, final_url = await _get(session, url, as_json=False)
         image, title = parse_meta(page[:500_000], final_url)
         if image:
-            return image, title
-    except _RateLimited:
-        err = Exception("429 Too Many Requests; not retrying until the next restart")
-    except Exception as page_err:  # noqa: BLE001
-        err = page_err
-    _LOGGER.warning(
-        "Couldn't get a picture from %s (%s). Paste the image address into the "
-        "keg's Image URL option instead.",
-        url,
-        err or "no og:image on the page",
-    )
-    return None, None
+            return LookupResult(image, title)
+        return LookupResult(error="no og:image on the page")
+    except _RateLimited as err:
+        return LookupResult(
+            retry=True, retry_after=err.retry_after, error="429 Too Many Requests"
+        )
+    except (_Transient, aiohttp.ClientConnectionError, TimeoutError) as err:
+        return LookupResult(retry=True, error=str(err) or type(err).__name__)
+    except Exception as err:  # noqa: BLE001
+        # 404, 403, bad page: trying again won't help.
+        return LookupResult(error=str(err) or type(err).__name__)
+
+
+async def async_lookup(hass: HomeAssistant, url: str) -> tuple[str | None, str | None]:
+    """Find a product's (image_url, title) in one attempt. Never raises."""
+    res = await async_lookup_once(hass, url)
+    return res.image, res.title
