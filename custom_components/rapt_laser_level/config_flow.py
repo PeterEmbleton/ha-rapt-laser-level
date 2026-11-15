@@ -33,6 +33,7 @@ from .const import (
     DOMAIN,
     RAPT_MANUFACTURER_ID,
 )
+from .drink import clean_product_url
 
 
 def _is_rapt_laser(info: BluetoothServiceInfoBleak) -> bool:
@@ -71,7 +72,7 @@ def _clean_input(user_input: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         if url is None:
             errors[key] = "invalid_url"
         else:
-            data[key] = url
+            data[key] = clean_product_url(url) if url and key == CONF_PRODUCT_URL else url
     return data, errors
 
 

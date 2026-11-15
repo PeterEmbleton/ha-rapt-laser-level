@@ -23,7 +23,7 @@ from .const import (
     RAPT_MANUFACTURER_ID,
     STALE_AFTER_S,
 )
-from .drink import async_lookup
+from .drink import async_lookup, clean_product_url
 from .parser import LaserReading, decode
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,7 +65,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
 
     opts = entry.options
     state.drink = (opts.get(CONF_DRINK) or "").strip() or None
-    state.product_url = (opts.get(CONF_PRODUCT_URL) or "").strip() or None
+    state.product_url = (
+        clean_product_url((opts.get(CONF_PRODUCT_URL) or "").strip()) or None
+    )
     state.image_url = (opts.get(CONF_IMAGE_URL) or "").strip() or None
     if state.product_url and (state.image_url is None or state.drink is None):
         cached = entry.data.get(CACHE_KEY) or {}
