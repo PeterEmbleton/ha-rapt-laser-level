@@ -39,7 +39,7 @@ def parse_meta(page: str, base_url: str) -> tuple[str | None, str | None]:
         if image.startswith("http://"):
             image = "https://" + image[len("http://"):]
     title = found.get("og:title") or found.get("twitter:title")
-    return image or None, title or None
+    return image or None, tidy_title(title)
 
 
 _HEADERS = {
@@ -59,7 +59,20 @@ def parse_shopify_js(data: dict, base_url: str) -> tuple[str | None, str | None]
         if image.startswith("//"):
             image = "https:" + image
         image = urljoin(base_url, image)
-    return image or None, data.get("title") or None
+    return image or None, tidy_title(data.get("title"))
+
+
+_KIT_SUFFIX_RE = re.compile(
+    r"[\s\-–—|,]*\b(?:ready[\s-]*to[\s-]*keg(?:[\s-]*kit)?|rtk)\s*$", re.IGNORECASE
+)
+
+
+def tidy_title(title: str | None) -> str | None:
+    """Drop shop packaging words, e.g. "... - Ready To Keg Kit" or "... - RTK"."""
+    if not title:
+        return None
+    cleaned = _KIT_SUFFIX_RE.sub("", title.strip()).strip(" -–—|,")
+    return cleaned or title.strip()
 
 
 _TRACKING_PREFIXES = ("utm_", "pr_", "_pos", "_sid", "_ss", "fbclid", "gclid", "srsltid")
