@@ -65,6 +65,10 @@ Saving the options reloads that keg; no restart needed.
 
 The sensor sends routine telemetry once an hour, and extra readings whenever the level changes. While it is pouring it sends a reading about once a second (status 3, LED flashing green). Home Assistant drops Bluetooth packets that are identical to the previous one. To cope with that, the integration refreshes **Last reading** from the last time HA heard the sensor, and only marks the sensor unavailable after **2.5 hours** without a reading.
 
+## Dashboard card
+
+[`examples/on-tap-card.yaml`](examples/on-tap-card.yaml) is a Markdown card that lists every keg, sorted by device name, with its drink picture, a level bar (yellow below 15%, red at 10% or less), litres and temperature, and "pouring now" while a pour is under way. It finds new kegs by itself. To use it, edit a dashboard, add a **Manual** card and paste the file in.
+
 ## Bluetooth packet format
 
 Manufacturer ID `0x4152` ("RA"). Offsets below are into the manufacturer data that follows the ID:

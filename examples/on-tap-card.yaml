@@ -1,0 +1,37 @@
+# "On tap" card: every keg, sorted by device name, with its picture, level, litres
+# and temperature. Add a Manual card to any dashboard and paste this in.
+- type: markdown
+  title: On tap
+  content: |-
+    {%- set drinks = integration_entities('rapt_laser_level') | select('match', 'sensor\..*_drink$') | list -%}
+    {%- if not drinks %}No RAPT laser level sensors set up yet.{% endif -%}
+    <table width="100%">
+    {%- set ns = namespace(rows=[]) -%}
+    {%- for d in drinks -%}
+    {%- set dev = device_id(d) -%}
+    {%- set ns.rows = ns.rows + [{'d': d, 'tap': device_attr(dev, 'name_by_user') or device_attr(dev, 'name') or d}] -%}
+    {%- endfor -%}
+    {#- Sorted by device (tap) name -#}
+    {%- for r in ns.rows | sort(attribute='tap') -%}
+    {%- set d = r.d -%}
+    {%- set dev = device_id(d) -%}
+    {%- set ents = device_entities(dev) -%}
+    {%- set lvl = ents | select('match', 'sensor\..*_level$') | first -%}
+    {%- set vol = ents | select('match', 'sensor\..*_volume$') | first -%}
+    {%- set tmp = ents | select('match', 'sensor\..*_temperature$') | first -%}
+    {%- set act = ents | select('match', 'sensor\..*_activity$') | first -%}
+    {%- set tap = device_attr(dev, 'name_by_user') or device_attr(dev, 'name') -%}
+    {%- set name = states(d) if states(d) not in ['unknown', 'unavailable', ''] else tap -%}
+    {%- set pic = state_attr(d, 'entity_picture') -%}
+    {%- set ok = is_number(states(lvl)) -%}
+    {%- set pct = states(lvl) | float(0) -%}
+    {%- set filled = (pct / 10) | round(0, 'ceil') | int if ok else 0 -%}
+    {%- set block = '🟥' if pct <= 10 else ('🟨' if pct < 15 else '🟩') -%}
+    <tr>
+    <td width="72">{% if pic %}<img src="{{ pic }}" width="64">{% else %}<ha-icon icon="mdi:keg"></ha-icon>{% endif %}</td>
+    <td><b>{{ name }}</b>{% if name != tap or states(act) == 'Rapid readings (pour)' %}<br><small>{{ tap if name != tap else '' }}{% if states(act) == 'Rapid readings (pour)' %}{{ ' · ' if name != tap else '' }}pouring now{% endif %}</small>{% endif %}<br>
+    {%- if ok %}{{ block * filled }}{{ '⬜' * (10 - filled) }} <b>{{ pct | round(0) | int }}%</b> · {{ states(vol) | float(0) | round(1) }} L · {{ states(tmp) | float(0) | round(1) }} °C
+    {%- else %}<i>No recent reading</i>{% endif %}</td>
+    </tr>
+    {%- endfor %}
+    </table>
