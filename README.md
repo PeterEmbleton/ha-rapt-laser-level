@@ -63,7 +63,7 @@ Saving the options reloads that keg; no restart needed.
 
 ## How often it updates
 
-The sensor sends routine telemetry once an hour, and extra readings whenever the level changes. While it is pouring it sends a reading about once a second (status 3, LED flashing green). Home Assistant drops Bluetooth packets that are identical to the previous one. To cope with that, the integration refreshes **Last reading** from the last time HA heard the sensor, and only marks the sensor unavailable after **2.5 hours** without a reading.
+The sensor sends routine telemetry once an hour, and extra readings whenever the level changes. While it is pouring it sends a reading about once a second (status 3, LED flashing green). When a pour finishes the sensor just stops sending, so **Activity** goes back to `Idle` after 30 seconds with no new reading (the raw **Status code** keeps the last value the sensor sent). Home Assistant drops Bluetooth packets that are identical to the previous one. To cope with that, the integration refreshes **Last reading** from the last time HA heard the sensor, and only marks the sensor unavailable after **2.5 hours** without a reading.
 
 ## Dashboard card
 

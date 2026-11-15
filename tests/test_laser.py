@@ -119,3 +119,30 @@ async def test_unchanged_adverts_keep_fresh(hass: HomeAssistant):
 def test_power_on_placeholder_ignored():
     # Real packet from Tap 3 just after it was switched on.
     assert decode(bytes.fromhex("5054a1ee90a80df5380000000000ffff008001")) is None
+
+
+async def test_pour_ends_when_readings_stop(hass: HomeAssistant):
+    from datetime import timedelta
+    from bluetooth_data_tools import monotonic_time_coarse
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    captured = {}
+    def fake_register(hass_, cb, matcher, mode):
+        captured["cb"] = cb
+        return lambda: None
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 4 - Beer", data={CONF_ADDRESS: ADDR}, options={})
+    entry.add_to_hass(hass)
+    with patch("homeassistant.components.bluetooth.async_register_callback", fake_register), \
+         patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        captured["cb"](info(make_payload(dist=250, status=3)), BluetoothChange.ADVERTISEMENT)
+        await hass.async_block_till_done()
+        assert hass.states.get("sensor.tap_4_beer_activity").state == "Rapid readings (pour)"
+        # The sensor goes quiet; HA still holds the last status-3 packet.
+        later = monotonic_time_coarse() + 40
+        with patch("custom_components.rapt_laser_level.monotonic_time_coarse", return_value=later):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=40))
+            await hass.async_block_till_done()
+            assert hass.states.get("sensor.tap_4_beer_activity").state == "Idle"
+            assert hass.states.get("sensor.tap_4_beer_status_code").state == "3"  # raw code unchanged

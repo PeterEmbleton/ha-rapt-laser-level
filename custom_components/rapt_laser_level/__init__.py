@@ -17,7 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
@@ -29,6 +29,7 @@ from .const import (
     CACHE_KEY,
     DOMAIN,
     LOOKUP_RETRY_DELAYS,
+    POUR_ENDED_AFTER_S,
     RAPT_MANUFACTURER_ID,
     STALE_AFTER_S,
 )
@@ -70,12 +71,34 @@ class LaserState:
     drink: str | None = None
     product_url: str | None = None
     image_url: str | None = None
+    # Monotonic time of the last new (changed) reading. HA drops identical
+    # adverts, so this only moves when the sensor reports something new.
+    last_change: float | None = None
+    cancel_pour_timer: Callable[[], None] | None = None
     listeners: list[Callable[[], None]] = field(default_factory=list)
 
     @callback
     def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
         self.listeners.append(cb)
         return lambda: self.listeners.remove(cb)
+
+    @property
+    def status(self) -> int | None:
+        """Sensor status, with a stale "rapid readings" treated as idle (1).
+
+        After a pour the sensor stops sending, but HA keeps its last packet,
+        which still says 3. No new reading for POUR_ENDED_AFTER_S means the
+        pour is over.
+        """
+        if self.reading is None:
+            return None
+        if (
+            self.reading.status == 3
+            and self.last_change is not None
+            and monotonic_time_coarse() - self.last_change > POUR_ENDED_AFTER_S
+        ):
+            return 1
+        return self.reading.status
 
     @callback
     def async_notify(self) -> None:
@@ -126,7 +149,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
             return
         state.reading = reading
         state.last_seen = dt_util.utcnow()
+        state.last_change = monotonic_time_coarse()
         state.available = True
+        if state.cancel_pour_timer is not None:
+            state.cancel_pour_timer()
+            state.cancel_pour_timer = None
+        if reading.status == 3:
+            # Re-check once the pour has had time to go quiet.
+            state.cancel_pour_timer = async_call_later(
+                hass, POUR_ENDED_AFTER_S + 1, _pour_check
+            )
+        state.async_notify()
+
+    @callback
+    def _pour_check(_now: datetime) -> None:
+        state.cancel_pour_timer = None
         state.async_notify()
 
     @callback
@@ -171,6 +208,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
         _on_advert(info, bluetooth.BluetoothChange.ADVERTISEMENT)
 
     entry.async_on_unload(entry.add_update_listener(_async_reload))
+
+    @callback
+    def _cancel_pour_timer() -> None:
+        if state.cancel_pour_timer is not None:
+            state.cancel_pour_timer()
+            state.cancel_pour_timer = None
+
+    entry.async_on_unload(_cancel_pour_timer)
     if needs_lookup:
         entry.async_create_background_task(
             hass,

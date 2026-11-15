@@ -49,7 +49,7 @@ STATUS_UNKNOWN = "Unknown"
 
 
 def _status_label(state: LaserState, opts: dict[str, Any]) -> str:
-    return STATUS_LABELS.get(state.reading.status, STATUS_UNKNOWN)
+    return STATUS_LABELS.get(state.status, STATUS_UNKNOWN)
 
 
 @dataclass(frozen=True, kw_only=True)
