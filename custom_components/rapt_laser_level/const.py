@@ -26,3 +26,7 @@ DEFAULT_FULL_MM = 26
 # The sensor sends routine telemetry hourly (RAPT app: Telemetry Frequency 1 h),
 # plus extra readings when the level changes. Allow two missed hourly reports.
 STALE_AFTER_S = 150 * 60
+
+# Background drink-picture lookup: wait this long (seconds) before each retry
+# after a temporary failure such as KegLand's 429. Seven attempts in all.
+LOOKUP_RETRY_DELAYS = (15 * 60, 60 * 60, 3 * 3600, 6 * 3600, 12 * 3600, 24 * 3600)

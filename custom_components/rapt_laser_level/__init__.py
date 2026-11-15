@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import asyncio
 import logging
 from bluetooth_data_tools import monotonic_time_coarse
 
@@ -20,14 +21,17 @@ from .const import (
     CONF_IMAGE_URL,
     CONF_PRODUCT_URL,
     CACHE_KEY,
+    DOMAIN,
+    LOOKUP_RETRY_DELAYS,
     RAPT_MANUFACTURER_ID,
     STALE_AFTER_S,
 )
-from .drink import async_lookup, clean_product_url, tidy_title
+from .drink import async_lookup_once, clean_product_url, tidy_title
 from .parser import LaserReading, decode
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE]
+_sleep = asyncio.sleep  # patched in tests
 
 
 @dataclass
@@ -69,24 +73,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
         clean_product_url((opts.get(CONF_PRODUCT_URL) or "").strip()) or None
     )
     state.image_url = (opts.get(CONF_IMAGE_URL) or "").strip() or None
+    needs_lookup = False
     if state.product_url and (state.image_url is None or state.drink is None):
         cached = entry.data.get(CACHE_KEY) or {}
         if cached.get("url") == state.product_url and cached.get("image"):
             # Looked up before: don't hit the shop on every restart (KegLand
             # rate-limits with 429s).
-            image, title = cached["image"], tidy_title(cached.get("title"))
+            state.image_url = state.image_url or cached["image"]
+            state.drink = state.drink or tidy_title(cached.get("title"))
         else:
-            image, title = await async_lookup(hass, state.product_url)
-            if image:
-                hass.config_entries.async_update_entry(
-                    entry,
-                    data={
-                        **entry.data,
-                        CACHE_KEY: {"url": state.product_url, "image": image, "title": title},
-                    },
-                )
-        state.image_url = state.image_url or image
-        state.drink = state.drink or title
+            needs_lookup = True
 
     @callback
     def _on_advert(
@@ -150,7 +146,57 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
         _on_advert(info, bluetooth.BluetoothChange.ADVERTISEMENT)
 
     entry.async_on_unload(entry.add_update_listener(_async_reload))
+    if needs_lookup:
+        entry.async_create_background_task(
+            hass,
+            _async_lookup_with_retries(hass, entry, state.product_url),
+            f"{DOMAIN} drink lookup {address}",
+        )
     return True
+
+
+async def _async_lookup_with_retries(
+    hass: HomeAssistant, entry: RaptLaserConfigEntry, url: str
+) -> None:
+    """Fetch the drink's picture in the background, backing off on failure.
+
+    At most len(LOOKUP_RETRY_DELAYS) + 1 attempts, spread over about two
+    days, then it stops until the keg is reloaded. Nothing runs once a
+    lookup has succeeded: the result is cached in the entry, and saving the
+    cache reloads the keg so its entities pick the picture up.
+    """
+    delays = [0.0, *LOOKUP_RETRY_DELAYS]
+    for attempt, delay in enumerate(delays):
+        if delay:
+            await _sleep(delay)
+        res = await async_lookup_once(hass, url)
+        if res.image:
+            _LOGGER.debug("Drink lookup for %s found %s", url, res.image)
+            hass.config_entries.async_update_entry(
+                entry,
+                data={
+                    **entry.data,
+                    CACHE_KEY: {"url": url, "image": res.image, "title": res.title},
+                },
+            )
+            return
+        if not res.retry or attempt + 1 == len(delays):
+            _LOGGER.warning(
+                "Couldn't get a picture from %s (%s); giving up until the keg "
+                "is reloaded. You can paste an image address into its Image "
+                "URL option instead",
+                url,
+                res.error,
+            )
+            return
+        wait = min(max(delays[attempt + 1], res.retry_after or 0), 86400.0)
+        delays[attempt + 1] = wait
+        _LOGGER.info(
+            "Couldn't get a picture from %s (%s); trying again in %d min",
+            url,
+            res.error,
+            wait // 60,
+        )
 
 
 async def _async_reload(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> None:
