@@ -65,6 +65,25 @@ Saving the options reloads that keg; no restart needed.
 
 The sensor sends routine telemetry once an hour, and extra readings whenever the level changes. While it is pouring it sends a reading about once a second (status 3, LED flashing green). Home Assistant drops Bluetooth packets that are identical to the previous one. To cope with that, the integration refreshes **Last reading** from the last time HA heard the sensor, and only marks the sensor unavailable after **2.5 hours** without a reading.
 
+## Dashboard card
+
+The integration comes with a **RAPT Keg card**. It loads on every dashboard by itself, so there's nothing else to install. Edit a dashboard, choose **Add card** and pick **RAPT Keg card**, or use it in YAML:
+
+```yaml
+type: custom:rapt-keg-card
+title: On tap          # optional, blank for no title
+sort: device           # device (default), drink, or level (lowest first)
+warning: 15            # bar turns yellow below this %
+critical: 10           # bar turns red at or below this %
+show_image: true
+show_volume: true
+show_temperature: true
+```
+
+It finds every keg by itself and shows its drink picture, name, tap, a level bar, litres and temperature, plus "pouring now" during a pour. Tapping a keg opens its level history. After updating the integration, refresh the browser (or clear the app's frontend cache) to get the new card.
+
+If you'd rather not use a custom card, [`examples/on-tap-card.yaml`](examples/on-tap-card.yaml) is a plain Markdown card that does much the same.
+
 ## Bluetooth packet format
 
 Manufacturer ID `0x4152` ("RA"). Offsets below are into the manufacturer data that follows the ID:
