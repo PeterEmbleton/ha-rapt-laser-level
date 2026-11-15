@@ -51,7 +51,7 @@ Press the sensor's Bluetooth button once to make it send a reading straight away
 | --- | --- | --- |
 | Name | | e.g. `Tap 3 - Ginger Beer` |
 | Drink | | Leave blank to use the product page's title |
-| Product page URL | | Optional. Tracking parameters are removed. For Shopify stores like KegLand the picture comes from the product feed (`/products/<name>.js`, one request, picture hosted on cdn.shopify.com); for other sites it comes from the page's `og:image` tag. The lookup runs in the background when the keg starts and is cached after it succeeds. If the shop is busy or rate-limiting (KegLand sometimes answers 429), it tries again after 15 min, 1 h, 3 h, 6 h, 12 h and 24 h (or later if the shop asks), then gives up until the keg is reloaded. Nothing polls the shop once it has the picture |
+| Product page URL | | Optional. Tracking parameters are removed. For Shopify stores like KegLand the picture comes from the product feed (`/products/<name>.js`, one request, picture hosted on cdn.shopify.com); for other sites it comes from the page's `og:image` tag. See [Drink picture lookups](#drink-picture-lookups) for how often the shop is asked |
 | Image URL | | Optional. Overrides the product page picture |
 | Capacity (L) | 19 | |
 | Empty distance (mm) | 560 | The sensor's reading with the keg empty. KegLand's default is 560 mm for 19 L and 290 mm for 9.5 L |
@@ -60,6 +60,14 @@ Press the sensor's Bluetooth button once to make it send a reading straight away
 Level % = (empty − distance) ÷ (empty − full), clamped to 0–100. Volume = capacity × level. This assumes a straight-sided keg.
 
 Saving the options reloads that keg; no restart needed.
+
+## Drink picture lookups
+
+The shop is only asked when a keg has a product page URL and no Image URL or Drink of its own, and each lookup is one request (two for non-Shopify sites). There is no regular polling:
+
+- **No picture yet:** try straight away, and if the shop is busy or rate-limiting (KegLand sometimes answers 429), try again after 15 min, 1 h, 3 h, 6 h, 12 h, then 1, 2, 4, 8 and 16 days, then once a month. A longer wait asked for by the shop is respected.
+- **Picture found:** check once a month whether it has changed (plus a random delay of up to a day, so kegs don't all ask at once).
+- The schedule is saved, so restarting Home Assistant or reloading a keg doesn't trigger extra lookups. Changing the product URL starts afresh.
 
 ## How often it updates
 

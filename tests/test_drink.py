@@ -28,7 +28,7 @@ async def test_drink_entities(hass: HomeAssistant):
     lookup = AsyncMock(return_value=LookupResult("https://img/x.jpg", "Diet Orange Stripe"))
     with patch("homeassistant.components.bluetooth.async_register_callback", return_value=lambda: None), \
          patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None), \
-         patch("custom_components.rapt_laser_level.async_lookup_once", lookup):
+         patch("custom_components.rapt_laser_level.lookup.async_lookup_once", lookup):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done(wait_background_tasks=True)
     d = hass.states.get("sensor.tap_3_drink")
@@ -101,7 +101,7 @@ async def test_lookup_is_cached(hass: HomeAssistant):
     lookup = AsyncMock(return_value=LookupResult("https://img/x.jpg", "Ginger"))
     with patch("homeassistant.components.bluetooth.async_register_callback", return_value=lambda: None), \
          patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None), \
-         patch("custom_components.rapt_laser_level.async_lookup_once", lookup):
+         patch("custom_components.rapt_laser_level.lookup.async_lookup_once", lookup):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done(wait_background_tasks=True)
         assert entry.data["drink_lookup"]["image"] == "https://img/x.jpg"
@@ -164,7 +164,32 @@ async def test_lookup_404_not_retried(hass: HomeAssistant, aioclient_mock):
     assert not res.retry and res.image is None
 
 
-async def test_lookup_retries_after_429(hass: HomeAssistant):
+def _patches(lookup):
+    return (
+        patch("homeassistant.components.bluetooth.async_register_callback", return_value=lambda: None),
+        patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None),
+        patch("custom_components.rapt_laser_level.lookup.async_lookup_once", lookup),
+    )
+
+
+async def _advance(hass, seconds):
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
+def test_backoff_doubles_out_to_a_month():
+    from custom_components.rapt_laser_level.lookup import retry_delay
+    days = [retry_delay(n) / 86400 for n in range(6, 13)]
+    assert days == [1, 2, 4, 8, 16, 30, 30]
+    assert retry_delay(1) == 15 * 60
+    assert retry_delay(1, retry_after=7200) == 7200  # the shop asked for longer
+
+
+async def test_lookup_retries_after_429(hass: HomeAssistant, freezer):
     opts = {"keg_name": "Tap 3", "product_url": KL,
             "capacity_l": 19.0, "empty_distance_mm": 560, "full_distance_mm": 26}
     entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
@@ -173,20 +198,59 @@ async def test_lookup_retries_after_429(hass: HomeAssistant):
         LookupResult(retry=True, retry_after=7200, error="429 Too Many Requests"),
         LookupResult("https://img/x.jpg", "Ginger"),
     ])
-    sleep = AsyncMock()
-    with patch("homeassistant.components.bluetooth.async_register_callback", return_value=lambda: None), \
-         patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None), \
-         patch("custom_components.rapt_laser_level._sleep", sleep), \
-         patch("custom_components.rapt_laser_level.async_lookup_once", lookup):
+    p1, p2, p3 = _patches(lookup)
+    with p1, p2, p3:
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done(wait_background_tasks=True)
-        await hass.async_block_till_done(wait_background_tasks=True)
-    assert lookup.await_count == 2
-    sleep.assert_awaited_once_with(7200)  # honoured Retry-After over the 15 min default
+        assert lookup.await_count == 1
+        await _advance(hass, 3600)  # 15 min default, but the shop asked for 2 h
+        assert lookup.await_count == 1
+        freezer.tick(7201)
+        await _advance(hass, 0)
+        assert lookup.await_count == 2
     assert entry.data["drink_lookup"]["image"] == "https://img/x.jpg"
     # Saving the cache reloaded the keg, so the picture entity now exists.
     assert hass.states.get("image.tap_3_drink_image") is not None
     assert hass.states.get("sensor.tap_3_drink").state == "Ginger"
+
+
+async def test_schedule_survives_restart(hass: HomeAssistant):
+    opts = {"keg_name": "Tap 3", "product_url": KL}
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
+    entry.add_to_hass(hass)
+    lookup = AsyncMock(return_value=LookupResult(retry=True, error="429 Too Many Requests"))
+    p1, p2, p3 = _patches(lookup)
+    with p1, p2, p3:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert lookup.await_count == 1
+        # A reload (like a restart) waits for the saved retry time.
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert lookup.await_count == 1
+
+
+async def test_monthly_check_picks_up_new_picture(hass: HomeAssistant, freezer):
+    opts = {"keg_name": "Tap 3", "product_url": KL}
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
+    entry.add_to_hass(hass)
+    lookup = AsyncMock(side_effect=[
+        LookupResult("https://img/old.jpg", "Ginger"),
+        LookupResult("https://img/old.jpg", "Ginger"),
+        LookupResult("https://img/new.jpg", "Ginger"),
+    ])
+    p1, p2, p3 = _patches(lookup)
+    with p1, p2, p3:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert lookup.await_count == 1
+        for month in (1, 2):
+            freezer.tick(31 * 86400 + 1)
+            await _advance(hass, 0)
+            assert lookup.await_count == 1 + month
+    assert entry.data["drink_lookup"]["image"] == "https://img/new.jpg"
+    assert hass.states.get("sensor.tap_3_drink").attributes["entity_picture"] == "https://img/new.jpg"
 
 
 async def test_lookup_non_shopify_reads_page(hass: HomeAssistant, aioclient_mock):

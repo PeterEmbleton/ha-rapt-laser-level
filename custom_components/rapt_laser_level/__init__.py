@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import asyncio
 import logging
 from pathlib import Path
 from bluetooth_data_tools import monotonic_time_coarse
@@ -28,17 +27,16 @@ from .const import (
     CONF_PRODUCT_URL,
     CACHE_KEY,
     DOMAIN,
-    LOOKUP_RETRY_DELAYS,
     POUR_ENDED_AFTER_S,
     RAPT_MANUFACTURER_ID,
     STALE_AFTER_S,
 )
-from .drink import async_lookup_once, clean_product_url, tidy_title
+from .drink import clean_product_url, tidy_title
+from .lookup import DrinkLookup, async_forget
 from .parser import LaserReading, decode
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE]
-_sleep = asyncio.sleep  # patched in tests
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -129,8 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
             # rate-limits with 429s).
             state.image_url = state.image_url or cached["image"]
             state.drink = state.drink or tidy_title(cached.get("title"))
-        else:
-            needs_lookup = True
+        needs_lookup = True
 
     @callback
     def _on_advert(
@@ -217,56 +214,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
 
     entry.async_on_unload(_cancel_pour_timer)
     if needs_lookup:
-        entry.async_create_background_task(
-            hass,
-            _async_lookup_with_retries(hass, entry, state.product_url),
-            f"{DOMAIN} drink lookup {address}",
-        )
+        lookup = DrinkLookup(hass, entry, state.product_url)
+        entry.async_on_unload(lookup.async_cancel)
+        await lookup.async_start()
     return True
-
-
-async def _async_lookup_with_retries(
-    hass: HomeAssistant, entry: RaptLaserConfigEntry, url: str
-) -> None:
-    """Fetch the drink's picture in the background, backing off on failure.
-
-    At most len(LOOKUP_RETRY_DELAYS) + 1 attempts, spread over about two
-    days, then it stops until the keg is reloaded. Nothing runs once a
-    lookup has succeeded: the result is cached in the entry, and saving the
-    cache reloads the keg so its entities pick the picture up.
-    """
-    delays = [0.0, *LOOKUP_RETRY_DELAYS]
-    for attempt, delay in enumerate(delays):
-        if delay:
-            await _sleep(delay)
-        res = await async_lookup_once(hass, url)
-        if res.image:
-            _LOGGER.debug("Drink lookup for %s found %s", url, res.image)
-            hass.config_entries.async_update_entry(
-                entry,
-                data={
-                    **entry.data,
-                    CACHE_KEY: {"url": url, "image": res.image, "title": res.title},
-                },
-            )
-            return
-        if not res.retry or attempt + 1 == len(delays):
-            _LOGGER.warning(
-                "Couldn't get a picture from %s (%s); giving up until the keg "
-                "is reloaded. You can paste an image address into its Image "
-                "URL option instead",
-                url,
-                res.error,
-            )
-            return
-        wait = min(max(delays[attempt + 1], res.retry_after or 0), 86400.0)
-        delays[attempt + 1] = wait
-        _LOGGER.info(
-            "Couldn't get a picture from %s (%s); trying again in %d min",
-            url,
-            res.error,
-            wait // 60,
-        )
 
 
 async def _async_reload(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> None:
@@ -276,6 +227,7 @@ async def _async_reload(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> Non
 async def async_remove_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> None:
     """Let HA offer the sensor for discovery again once its entry is deleted."""
     bluetooth.async_rediscover_address(hass, entry.data[CONF_ADDRESS].upper())
+    await async_forget(hass, entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> bool:
