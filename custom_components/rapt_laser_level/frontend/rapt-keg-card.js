@@ -7,7 +7,7 @@
  */
 
 const DOMAIN = "rapt_laser_level";
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 const POURING = "Rapid readings (pour)";
 
 const DEFAULTS = {

@@ -206,3 +206,10 @@ def test_tidy_title():
     assert tidy_title("Hartwork Pale Ale") == "Hartwork Pale Ale"
     assert tidy_title("Ready to Keg Kit") == "Ready to Keg Kit"  # never empty
     assert tidy_title(None) is None
+
+
+def test_normalise_pasted_shopify_address():
+    from custom_components.rapt_laser_level.config_flow import _normalise_url
+    raw = '"\\/\\/cdn.shopify.com\\/s\\/files\\/1\\/x.jpg?v=1"'
+    assert _normalise_url(raw) == "https://cdn.shopify.com/s/files/1/x.jpg?v=1"
+    assert _normalise_url("//cdn.shopify.com/a.jpg") == "https://cdn.shopify.com/a.jpg"

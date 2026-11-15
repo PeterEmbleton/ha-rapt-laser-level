@@ -96,7 +96,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
     state.product_url = (
         clean_product_url((opts.get(CONF_PRODUCT_URL) or "").strip()) or None
     )
-    state.image_url = (opts.get(CONF_IMAGE_URL) or "").strip() or None
+    # Older versions saved pasted addresses as typed, e.g. JSON-escaped "\/".
+    state.image_url = (opts.get(CONF_IMAGE_URL) or "").strip().replace("\\/", "/") or None
     needs_lookup = False
     if state.product_url and (state.image_url is None or state.drink is None):
         cached = entry.data.get(CACHE_KEY) or {}
