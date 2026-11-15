@@ -121,3 +121,40 @@ async def test_remove_entry_allows_rediscovery(hass: HomeAssistant):
         await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()
     rediscover.assert_called_once_with(hass, ADDR)
+
+
+KL = "https://kegland.com.au/products/fukusoda-yuzu-rtk"
+KL_JS = {"title": "Hard FUKUSODA Yuzu", "featured_image": "//cdn.shopify.com/s/files/yuzu.jpg?v=1"}
+
+
+def test_clean_product_url():
+    from custom_components.rapt_laser_level.drink import clean_product_url, shopify_js_url
+    assert clean_product_url(KL + "?pr_prod_strat=similar&pr_seq=uniform&variant=42") == KL + "?variant=42"
+    assert clean_product_url(KL + "?utm_source=x#top") == KL
+    assert shopify_js_url(KL + "?variant=42") == KL + ".js"
+    assert shopify_js_url("https://example.com/beer/1") is None
+
+
+async def test_lookup_shopify_first_single_request(hass: HomeAssistant, aioclient_mock):
+    from custom_components.rapt_laser_level.drink import async_lookup
+    import json
+    aioclient_mock.get(KL + ".js", text=json.dumps(KL_JS))
+    img, title = await async_lookup(hass, KL + "?pr_prod_strat=similar")
+    assert img == "https://cdn.shopify.com/s/files/yuzu.jpg?v=1" and title == "Hard FUKUSODA Yuzu"
+    assert aioclient_mock.call_count == 1
+
+
+async def test_lookup_stops_after_429(hass: HomeAssistant, aioclient_mock):
+    from custom_components.rapt_laser_level.drink import async_lookup
+    aioclient_mock.get(KL + ".js", status=429)
+    aioclient_mock.get(KL, text=PAGE)
+    assert await async_lookup(hass, KL) == (None, None)
+    assert aioclient_mock.call_count == 1  # never tried the page
+
+
+async def test_lookup_non_shopify_reads_page(hass: HomeAssistant, aioclient_mock):
+    from custom_components.rapt_laser_level.drink import async_lookup
+    aioclient_mock.get("https://example.com/beer/1", text=PAGE)
+    img, _ = await async_lookup(hass, "https://example.com/beer/1")
+    assert img.startswith("https://kegland.com.au/cdn/")
+    assert aioclient_mock.call_count == 1
