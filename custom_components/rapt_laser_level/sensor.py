@@ -82,6 +82,7 @@ def _litres(state: LaserState, opts: dict[str, Any]) -> float | None:
 DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     LaserSensorDescription(
         key="level",
+        translation_key="level",
         name="Level",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -90,6 +91,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="volume",
+        translation_key="volume",
         name="Volume",
         device_class=SensorDeviceClass.VOLUME_STORAGE,
         native_unit_of_measurement=UnitOfVolume.LITERS,
@@ -99,6 +101,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="distance",
+        translation_key="distance",
         name="Distance",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
@@ -107,6 +110,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="remaining",
+        translation_key="remaining",
         name="Remaining height (sensor)",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
@@ -116,6 +120,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="temperature",
+        translation_key="temperature",
         name="Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -125,6 +130,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="battery",
+        translation_key="battery",
         name="Battery",
         device_class=SensorDeviceClass.BATTERY,
         native_unit_of_measurement=PERCENTAGE,
@@ -134,6 +140,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="activity",
+        translation_key="activity",
         name="Activity",
         device_class=SensorDeviceClass.ENUM,
         options=[*STATUS_LABELS.values(), STATUS_UNKNOWN],
@@ -142,6 +149,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="status",
+        translation_key="status",
         name="Status code",
         icon="mdi:information-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -149,6 +157,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="last_reading",
+        translation_key="last_reading",
         name="Last reading",
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -156,6 +165,7 @@ DESCRIPTIONS: tuple[LaserSensorDescription, ...] = (
     ),
     LaserSensorDescription(
         key="rssi",
+        translation_key="rssi",
         name="Signal strength",
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
@@ -195,6 +205,7 @@ class DrinkSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_name = "Drink"
+    _attr_translation_key = "drink"
     _attr_icon = "mdi:glass-mug-variant"
 
     def __init__(self, entry: RaptLaserConfigEntry) -> None:

@@ -7,13 +7,19 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import asyncio
 import logging
+from pathlib import Path
 from bluetooth_data_tools import monotonic_time_coarse
 
 from homeassistant.components import bluetooth
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -32,6 +38,24 @@ from .parser import LaserReading, decode
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE]
 _sleep = asyncio.sleep  # patched in tests
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+CARD_URL = f"/{DOMAIN}/rapt-keg-card.js"
+CARD_FILE = Path(__file__).parent / "frontend" / "rapt-keg-card.js"
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Serve the RAPT Keg dashboard card and load it on every dashboard."""
+    # Frontend loads first when it's configured (after_dependencies).
+    if hass.http is not None and "frontend" in hass.config.components:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL, str(CARD_FILE), True)]
+        )
+        version = (await async_get_integration(hass, DOMAIN)).version
+        # The version query makes browsers fetch the new card after an update.
+        add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+    return True
 
 
 @dataclass

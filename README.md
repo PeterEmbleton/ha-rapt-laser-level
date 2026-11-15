@@ -67,7 +67,22 @@ The sensor sends routine telemetry once an hour, and extra readings whenever the
 
 ## Dashboard card
 
-[`examples/on-tap-card.yaml`](examples/on-tap-card.yaml) is a Markdown card that lists every keg, sorted by device name, with its drink picture, a level bar (yellow below 15%, red at 10% or less), litres and temperature, and "pouring now" while a pour is under way. It finds new kegs by itself. To use it, edit a dashboard, add a **Manual** card and paste the file in.
+The integration comes with a **RAPT Keg card**. It loads on every dashboard by itself, so there's nothing else to install. Edit a dashboard, choose **Add card** and pick **RAPT Keg card**, or use it in YAML:
+
+```yaml
+type: custom:rapt-keg-card
+title: On tap          # optional, blank for no title
+sort: device           # device (default), drink, or level (lowest first)
+warning: 15            # bar turns yellow below this %
+critical: 10           # bar turns red at or below this %
+show_image: true
+show_volume: true
+show_temperature: true
+```
+
+It finds every keg by itself and shows its drink picture, name, tap, a level bar, litres and temperature, plus "pouring now" during a pour. Tapping a keg opens its level history. After updating the integration, refresh the browser (or clear the app's frontend cache) to get the new card.
+
+If you'd rather not use a custom card, [`examples/on-tap-card.yaml`](examples/on-tap-card.yaml) is a plain Markdown card that does much the same.
 
 ## Bluetooth packet format
 
