@@ -53,9 +53,13 @@ def _is_rapt_laser(info: BluetoothServiceInfoBleak) -> bool:
 
 def _normalise_url(value: Any) -> str | None:
     """Return a cleaned-up URL ("" for blank), or None if it isn't one."""
-    value = str(value or "").strip()
+    # Addresses copied out of a Shopify .js feed are JSON-escaped ("\/") and
+    # protocol-relative ("//cdn.shopify.com/...").
+    value = str(value or "").strip().strip('"').replace("\\/", "/")
     if not value:
         return ""
+    if value.startswith("//"):
+        value = "https:" + value
     if not value.lower().startswith(("http://", "https://")):
         value = "https://" + value
     if " " in value or "." not in value.split("//", 1)[1].split("/", 1)[0]:
