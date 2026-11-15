@@ -13,7 +13,8 @@ from YDraig/rapt-laser-level-display docs/ble.md and BestEnemies/Rapt-Details:
   16-17 temperature, int16 LE / 100 -> degC
   18    status bit field (3 seems to mean active/pouring, 1 idle; unconfirmed)
 
-Shorter "PT" packets (e.g. "PTQC" + 01) are identity/version frames and are
+Placeholder packets sent right after power-on (battery 0xFFFF, temperature
+0x8000) are ignored. Shorter "PT" packets (e.g. "PTQC" + 01) are identity/version frames and are
 ignored.
 """
 
@@ -40,6 +41,13 @@ class LaserReading:
 def decode(payload: bytes) -> LaserReading | None:
     """Decode a manufacturer-data payload, or return None if it is not a reading."""
     if len(payload) < MIN_LEN or payload[0:2] != b"PT":
+        return None
+    raw_battery = int.from_bytes(payload[14:16], "little")
+    raw_temp = int.from_bytes(payload[16:18], "little", signed=True)
+    if raw_battery == 0xFFFF and raw_temp == -0x8000:
+        # Sent just after power-on, before the first measurement: distance
+        # and remaining are 0 and battery/temperature hold "no value"
+        # markers. Ignore it so it doesn't read as a full keg.
         return None
     distance = int.from_bytes(payload[9:11], "little")
     remaining = int.from_bytes(payload[11:13], "little")

@@ -114,3 +114,8 @@ async def test_unchanged_adverts_keep_fresh(hass: HomeAssistant):
             async_fire_time_changed(hass, future2)
             await hass.async_block_till_done()
         assert hass.states.get("sensor.tap_4_beer_level").state == "unavailable"
+
+
+def test_power_on_placeholder_ignored():
+    # Real packet from Tap 3 just after it was switched on.
+    assert decode(bytes.fromhex("5054a1ee90a80df5380000000000ffff008001")) is None
