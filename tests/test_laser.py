@@ -146,3 +146,23 @@ async def test_pour_ends_when_readings_stop(hass: HomeAssistant):
             await hass.async_block_till_done()
             assert hass.states.get("sensor.tap_4_beer_activity").state == "Idle"
             assert hass.states.get("sensor.tap_4_beer_status_code").state == "3"  # raw code unchanged
+
+
+async def test_reading_survives_reload(hass: HomeAssistant):
+    captured = {}
+    def fake_register(hass_, cb, matcher, mode):
+        captured["cb"] = cb
+        return lambda: None
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 4 - Beer", data={CONF_ADDRESS: ADDR}, options={})
+    entry.add_to_hass(hass)
+    with patch("homeassistant.components.bluetooth.async_register_callback", fake_register), \
+         patch("homeassistant.components.bluetooth.async_last_service_info", return_value=None):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        captured["cb"](info(make_payload(dist=293)), BluetoothChange.ADVERTISEMENT)
+        await hass.async_block_till_done()
+        assert hass.states.get("sensor.tap_4_beer_level").state == "50.0"
+        # Saving the keg's options reloads it; HA has no fresh advert to replay.
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert hass.states.get("sensor.tap_4_beer_level").state == "50.0"

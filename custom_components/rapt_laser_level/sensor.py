@@ -222,7 +222,7 @@ class DrinkSensor(SensorEntity):
         return {
             "product_url": st.product_url,
             "image_url": st.image_url,
-            **(st.lookup or {}),
+            **{k: v for k, v in (st.lookup or {}).items() if v is not None},
         }
 
     async def async_added_to_hass(self) -> None:
