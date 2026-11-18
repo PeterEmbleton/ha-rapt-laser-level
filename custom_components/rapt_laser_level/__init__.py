@@ -42,6 +42,8 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+_DATA_LAST = "last_state"  # address -> LaserState, kept across reloads
+
 CARD_URL = f"/{DOMAIN}/rapt-keg-card.js"
 CARD_FILE = Path(__file__).parent / "frontend" / "rapt-keg-card.js"
 
@@ -116,6 +118,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
     address: str = entry.data[CONF_ADDRESS].upper()
     state = LaserState(address=address)
     entry.runtime_data = state
+    # Keep the last reading across a reload (e.g. saving the keg's options),
+    # so the sensors don't go blank until the next hourly report.
+    prev: LaserState | None = hass.data.get(DOMAIN, {}).get(_DATA_LAST, {}).pop(address, None)
+    if prev is not None and prev.reading is not None and prev.last_seen is not None and (
+        dt_util.utcnow() - prev.last_seen
+    ).total_seconds() < STALE_AFTER_S:
+        state.reading = prev.reading
+        state.last_seen = prev.last_seen
+        state.last_change = prev.last_change
+        state.rssi = prev.rssi
+        state.available = True
 
     opts = entry.options
     state.drink = (opts.get(CONF_DRINK) or "").strip() or None
@@ -234,4 +247,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) -
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) -> bool:
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        state = entry.runtime_data
+        hass.data.setdefault(DOMAIN, {}).setdefault(_DATA_LAST, {})[state.address] = state
+    return ok

@@ -30,5 +30,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/PeterEmbleton/ha-rapt-laser-level/issues",
   "requirements": [],
-  "version": "0.4.0"
+  "version": "0.4.1"
 }
