@@ -90,6 +90,7 @@ class DrinkLookup:
         now = dt_util.utcnow()
         if rec.get("url") == self.url and rec.get("next"):
             when = dt_util.parse_datetime(rec["next"]) or now
+            self._publish(rec)
         elif self._cached:
             # Upgraded from a version without a schedule: check in a month.
             when = now + _monthly()
@@ -118,14 +119,41 @@ class DrinkLookup:
             self.hass, self._async_run(), f"{DOMAIN} drink lookup {self.entry.title}"
         )
 
-    async def _async_save(self, attempt: int, when: datetime) -> None:
+    async def _async_save(
+        self,
+        attempt: int,
+        when: datetime,
+        last: datetime | None = None,
+        result: str | None = None,
+    ) -> None:
         store, data = await _async_store(self.hass)
-        data[self.entry.entry_id] = {
+        old = data.get(self.entry.entry_id) or {}
+        if old.get("url") != self.url:
+            old = {}
+        rec = {
             "url": self.url,
             "attempt": attempt,
             "next": when.isoformat(),
+            "last": last.isoformat() if last else old.get("last"),
+            "result": result or old.get("result"),
         }
+        data[self.entry.entry_id] = rec
         await store.async_save(data)
+        self._publish(rec)
+
+    @callback
+    def _publish(self, rec: dict[str, Any]) -> None:
+        """Show the schedule on the keg's Drink sensor."""
+        state = getattr(self.entry, "runtime_data", None)
+        if state is None:
+            return
+        state.lookup = {
+            "lookup_last_attempt": rec.get("last"),
+            "lookup_last_result": rec.get("result"),
+            "lookup_failed_attempts": rec.get("attempt", 0),
+            "lookup_next_attempt": rec.get("next"),
+        }
+        state.async_notify()
 
     async def _async_run(self) -> None:
         _, data = await _async_store(self.hass)
@@ -138,7 +166,7 @@ class DrinkLookup:
 
         if res.image:
             when = now + _monthly()
-            await self._async_save(0, when)
+            await self._async_save(0, when, now, "found")
             if cached and (cached["image"], cached.get("title")) == (res.image, res.title):
                 _LOGGER.debug("Drink picture for %s unchanged", self.url)
                 self._unsub = async_track_point_in_utc_time(self.hass, self._fire, when)
@@ -162,7 +190,7 @@ class DrinkLookup:
             attempt += 1
             wait = retry_delay(attempt, res.retry_after)
         when = now + timedelta(seconds=wait)
-        await self._async_save(attempt, when)
+        await self._async_save(attempt, when, now, res.error or "no picture found")
         log = _LOGGER.warning if attempt in (1, len(LOOKUP_RETRY_DELAYS) + 1) else _LOGGER.info
         log(
             "Couldn't get a picture from %s (%s); trying again %s. You can paste "

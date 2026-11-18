@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
+from typing import Any
 from pathlib import Path
 from bluetooth_data_tools import monotonic_time_coarse
 
@@ -73,6 +74,8 @@ class LaserState:
     # adverts, so this only moves when the sensor reports something new.
     last_change: float | None = None
     cancel_pour_timer: Callable[[], None] | None = None
+    # Drink-picture lookup schedule, shown on the Drink sensor.
+    lookup: dict[str, Any] | None = None
     listeners: list[Callable[[], None]] = field(default_factory=list)
 
     @callback

@@ -17,7 +17,7 @@ Each sensor becomes a device with these entities:
 | Battery | Battery % (diagnostic) |
 | Activity | `Idle`, `Single reading` or `Rapid readings (pour)` |
 | Status code / Remaining height / Last reading / Signal strength | Diagnostics (signal strength is disabled by default) |
-| Drink | The drink's name, with its picture as the entity picture |
+| Drink | The drink's name, with its picture as the entity picture, and the picture lookup's status as attributes |
 | Drink image | The drink's picture, for picture cards (only created when a picture is set) |
 
 ## Requirements
@@ -68,6 +68,9 @@ The shop is only asked when a keg has a product page URL and no Image URL or Dri
 - **No picture yet:** try straight away, and if the shop is busy or rate-limiting (KegLand sometimes answers 429), try again after 15 min, 1 h, 3 h, 6 h, 12 h, then 1, 2, 4, 8 and 16 days, then once a month. A longer wait asked for by the shop is respected.
 - **Picture found:** check once a month whether it has changed (plus a random delay of up to a day, so kegs don't all ask at once).
 - The schedule is saved, so restarting Home Assistant or reloading a keg doesn't trigger extra lookups. Changing the product URL starts afresh.
+- The keg's **Drink** sensor shows the schedule in its attributes: `lookup_last_attempt`, `lookup_last_result` (`found`, or why it failed, e.g. `429 Too Many Requests`), `lookup_failed_attempts` and `lookup_next_attempt`.
+
+KegLand often refuses Home Assistant's requests ("429 Too Many Requests") even when a browser on the same connection works, so lookups from KegLand may take a long time or never succeed. If the picture doesn't appear, open the product page in a browser, copy the image address into the keg's **Image URL** option, and set **Drink** yourself.
 
 ## How often it updates
 

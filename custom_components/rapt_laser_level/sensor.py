@@ -212,12 +212,29 @@ class DrinkSensor(SensorEntity):
         st = entry.runtime_data
         self._attr_unique_id = f"{st.address}_drink"
         self._attr_device_info = keg_device_info(entry)
+        self._state = st
         self._attr_native_value = st.drink
         self._attr_entity_picture = st.image_url
-        self._attr_extra_state_attributes = {
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        st = self._state
+        return {
             "product_url": st.product_url,
             "image_url": st.image_url,
+            **(st.lookup or {}),
         }
+
+    async def async_added_to_hass(self) -> None:
+        self._last_lookup = self._state.lookup
+        self.async_on_remove(self._state.async_add_listener(self._handle_update))
+
+    @callback
+    def _handle_update(self) -> None:
+        # Readings also notify; only rewrite when the lookup status changed.
+        if self._state.lookup != self._last_lookup:
+            self._last_lookup = self._state.lookup
+            self.async_write_ha_state()
 
 
 class LaserSensor(SensorEntity):

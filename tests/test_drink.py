@@ -203,12 +203,17 @@ async def test_lookup_retries_after_429(hass: HomeAssistant, freezer):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done(wait_background_tasks=True)
         assert lookup.await_count == 1
+        attrs = hass.states.get("sensor.tap_3_drink").attributes
+        assert attrs["lookup_last_result"] == "429 Too Many Requests"
+        assert attrs["lookup_failed_attempts"] == 1
+        assert attrs["lookup_next_attempt"] and attrs["lookup_last_attempt"]
         await _advance(hass, 3600)  # 15 min default, but the shop asked for 2 h
         assert lookup.await_count == 1
         freezer.tick(7201)
         await _advance(hass, 0)
         assert lookup.await_count == 2
     assert entry.data["drink_lookup"]["image"] == "https://img/x.jpg"
+    assert hass.states.get("sensor.tap_3_drink").attributes["lookup_last_result"] == "found"
     # Saving the cache reloaded the keg, so the picture entity now exists.
     assert hass.states.get("image.tap_3_drink_image") is not None
     assert hass.states.get("sensor.tap_3_drink").state == "Ginger"
