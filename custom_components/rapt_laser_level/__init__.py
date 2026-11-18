@@ -33,6 +33,7 @@ from .const import (
     STALE_AFTER_S,
 )
 from .drink import clean_product_url, tidy_title
+from . import websocket
 from .lookup import DrinkLookup, async_forget
 from .parser import LaserReading, decode
 
@@ -47,6 +48,7 @@ CARD_FILE = Path(__file__).parent / "frontend" / "rapt-keg-card.js"
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Serve the RAPT Keg dashboard card and load it on every dashboard."""
+    websocket.async_setup(hass)
     # Frontend loads first when it's configured (after_dependencies).
     if hass.http is not None and "frontend" in hass.config.components:
         await hass.http.async_register_static_paths(
@@ -217,9 +219,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
 
     entry.async_on_unload(_cancel_pour_timer)
     if needs_lookup:
-        lookup = DrinkLookup(hass, entry, state.product_url)
-        entry.async_on_unload(lookup.async_cancel)
-        await lookup.async_start()
+        await DrinkLookup(hass, entry, state.product_url).async_start()
     return True
 
 

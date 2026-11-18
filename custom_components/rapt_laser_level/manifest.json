@@ -22,12 +22,13 @@
   "config_flow": true,
   "dependencies": [
     "bluetooth_adapters",
-    "http"
+    "http",
+    "websocket_api"
   ],
   "documentation": "https://github.com/PeterEmbleton/ha-rapt-laser-level",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/PeterEmbleton/ha-rapt-laser-level/issues",
   "requirements": [],
-  "version": "0.3.4"
+  "version": "0.4.0"
 }

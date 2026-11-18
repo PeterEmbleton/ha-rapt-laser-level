@@ -27,14 +27,6 @@ DEFAULT_FULL_MM = 26
 # plus extra readings when the level changes. Allow two missed hourly reports.
 STALE_AFTER_S = 150 * 60
 
-# Background drink-picture lookup (see lookup.py): seconds to wait after each
-# failed attempt, e.g. KegLand's 429, doubling out to a month.
-LOOKUP_RETRY_DELAYS = (
-    15 * 60, 3600, 3 * 3600, 6 * 3600, 12 * 3600,
-    86400, 2 * 86400, 4 * 86400, 8 * 86400, 16 * 86400,
-)
-# Then try, or re-check a picture we already have, this often.
-LOOKUP_REFRESH_S = 30 * 86400
 
 # While pouring the sensor sends about one reading a second (status 3). This
 # long with no new reading means the pour has finished.

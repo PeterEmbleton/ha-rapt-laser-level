@@ -181,44 +181,6 @@ async def _advance(hass, seconds):
     await hass.async_block_till_done(wait_background_tasks=True)
 
 
-def test_backoff_doubles_out_to_a_month():
-    from custom_components.rapt_laser_level.lookup import retry_delay
-    days = [retry_delay(n) / 86400 for n in range(6, 13)]
-    assert days == [1, 2, 4, 8, 16, 30, 30]
-    assert retry_delay(1) == 15 * 60
-    assert retry_delay(1, retry_after=7200) == 7200  # the shop asked for longer
-
-
-async def test_lookup_retries_after_429(hass: HomeAssistant, freezer):
-    opts = {"keg_name": "Tap 3", "product_url": KL,
-            "capacity_l": 19.0, "empty_distance_mm": 560, "full_distance_mm": 26}
-    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
-    entry.add_to_hass(hass)
-    lookup = AsyncMock(side_effect=[
-        LookupResult(retry=True, retry_after=7200, error="429 Too Many Requests"),
-        LookupResult("https://img/x.jpg", "Ginger"),
-    ])
-    p1, p2, p3 = _patches(lookup)
-    with p1, p2, p3:
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done(wait_background_tasks=True)
-        assert lookup.await_count == 1
-        attrs = hass.states.get("sensor.tap_3_drink").attributes
-        assert attrs["lookup_last_result"] == "429 Too Many Requests"
-        assert attrs["lookup_failed_attempts"] == 1
-        assert attrs["lookup_next_attempt"] and attrs["lookup_last_attempt"]
-        await _advance(hass, 3600)  # 15 min default, but the shop asked for 2 h
-        assert lookup.await_count == 1
-        freezer.tick(7201)
-        await _advance(hass, 0)
-        assert lookup.await_count == 2
-    assert entry.data["drink_lookup"]["image"] == "https://img/x.jpg"
-    assert hass.states.get("sensor.tap_3_drink").attributes["lookup_last_result"] == "found"
-    # Saving the cache reloaded the keg, so the picture entity now exists.
-    assert hass.states.get("image.tap_3_drink_image") is not None
-    assert hass.states.get("sensor.tap_3_drink").state == "Ginger"
-
-
 async def test_schedule_survives_restart(hass: HomeAssistant):
     opts = {"keg_name": "Tap 3", "product_url": KL}
     entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
@@ -233,29 +195,6 @@ async def test_schedule_survives_restart(hass: HomeAssistant):
         assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done(wait_background_tasks=True)
         assert lookup.await_count == 1
-
-
-async def test_monthly_check_picks_up_new_picture(hass: HomeAssistant, freezer):
-    opts = {"keg_name": "Tap 3", "product_url": KL}
-    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
-    entry.add_to_hass(hass)
-    lookup = AsyncMock(side_effect=[
-        LookupResult("https://img/old.jpg", "Ginger"),
-        LookupResult("https://img/old.jpg", "Ginger"),
-        LookupResult("https://img/new.jpg", "Ginger"),
-    ])
-    p1, p2, p3 = _patches(lookup)
-    with p1, p2, p3:
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done(wait_background_tasks=True)
-        await hass.async_block_till_done(wait_background_tasks=True)
-        assert lookup.await_count == 1
-        for month in (1, 2):
-            freezer.tick(31 * 86400 + 1)
-            await _advance(hass, 0)
-            assert lookup.await_count == 1 + month
-    assert entry.data["drink_lookup"]["image"] == "https://img/new.jpg"
-    assert hass.states.get("sensor.tap_3_drink").attributes["entity_picture"] == "https://img/new.jpg"
 
 
 async def test_lookup_non_shopify_reads_page(hass: HomeAssistant, aioclient_mock):
@@ -282,3 +221,54 @@ def test_normalise_pasted_shopify_address():
     raw = '"\\/\\/cdn.shopify.com\\/s\\/files\\/1\\/x.jpg?v=1"'
     assert _normalise_url(raw) == "https://cdn.shopify.com/s/files/1/x.jpg?v=1"
     assert _normalise_url("//cdn.shopify.com/a.jpg") == "https://cdn.shopify.com/a.jpg"
+
+
+async def test_one_attempt_then_no_retries(hass: HomeAssistant, freezer):
+    opts = {"keg_name": "Tap 3", "product_url": KL}
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
+    entry.add_to_hass(hass)
+    lookup = AsyncMock(return_value=LookupResult(retry=True, error="429 Too Many Requests"))
+    p1, p2, p3 = _patches(lookup)
+    with p1, p2, p3:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        attrs = hass.states.get("sensor.tap_3_drink").attributes
+        assert attrs["lookup_last_result"] == "429 Too Many Requests"
+        freezer.tick(60 * 86400)
+        await _advance(hass, 0)
+        assert lookup.await_count == 1  # never asks again for the same link
+        # A new link gets one attempt of its own.
+        hass.config_entries.async_update_entry(entry, options={**opts, "product_url": KL + "-2"})
+        await hass.async_block_till_done(wait_background_tasks=True)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert lookup.await_count == 2
+
+
+async def test_card_saves_picture_found_by_browser(hass: HomeAssistant, hass_ws_client):
+    from homeassistant.setup import async_setup_component
+    opts = {"keg_name": "Tap 3", "product_url": KL}
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=ADDR, title="Tap 3", data={CONF_ADDRESS: ADDR}, options=opts)
+    entry.add_to_hass(hass)
+    lookup = AsyncMock(return_value=LookupResult(retry=True, error="429 Too Many Requests"))
+    p1, p2, p3 = _patches(lookup)
+    with p1, p2, p3:
+        assert await async_setup_component(hass, DOMAIN, {})
+        await hass.async_block_till_done(wait_background_tasks=True)
+        client = await hass_ws_client(hass)
+        await client.send_json({"id": 1, "type": "rapt_laser_level/drink_found",
+            "entity_id": "sensor.tap_3_drink", "product_url": KL + "?utm_source=x",
+            "image": "//cdn.shopify.com/s/files/x.jpg",
+            "title": "Diet Orange Stripe Brewed Ginger Beer - Jamaican - Ready To Keg Kit"})
+        msg = await client.receive_json()
+        assert msg["success"], msg
+        await hass.async_block_till_done(wait_background_tasks=True)
+        await client.send_json({"id": 2, "type": "rapt_laser_level/drink_found",
+            "entity_id": "sensor.tap_3_drink", "product_url": "https://evil.example/products/x",
+            "image": "https://evil.example/x.jpg"})
+        assert not (await client.receive_json())["success"]
+    assert lookup.await_count == 1
+    d = hass.states.get("sensor.tap_3_drink")
+    assert d.attributes["entity_picture"] == "https://cdn.shopify.com/s/files/x.jpg"
+    assert d.state == "Diet Orange Stripe Brewed Ginger Beer - Jamaican"
+    assert d.attributes["lookup_last_result"] == "found by the dashboard card"
+    assert hass.states.get("image.tap_3_drink_image") is not None
