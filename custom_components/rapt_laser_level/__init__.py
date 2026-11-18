@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
+from typing import Any
 from pathlib import Path
 from bluetooth_data_tools import monotonic_time_coarse
 
@@ -32,6 +33,7 @@ from .const import (
     STALE_AFTER_S,
 )
 from .drink import clean_product_url, tidy_title
+from . import websocket
 from .lookup import DrinkLookup, async_forget
 from .parser import LaserReading, decode
 
@@ -46,6 +48,7 @@ CARD_FILE = Path(__file__).parent / "frontend" / "rapt-keg-card.js"
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Serve the RAPT Keg dashboard card and load it on every dashboard."""
+    websocket.async_setup(hass)
     # Frontend loads first when it's configured (after_dependencies).
     if hass.http is not None and "frontend" in hass.config.components:
         await hass.http.async_register_static_paths(
@@ -73,6 +76,8 @@ class LaserState:
     # adverts, so this only moves when the sensor reports something new.
     last_change: float | None = None
     cancel_pour_timer: Callable[[], None] | None = None
+    # Drink-picture lookup schedule, shown on the Drink sensor.
+    lookup: dict[str, Any] | None = None
     listeners: list[Callable[[], None]] = field(default_factory=list)
 
     @callback
@@ -214,9 +219,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
 
     entry.async_on_unload(_cancel_pour_timer)
     if needs_lookup:
-        lookup = DrinkLookup(hass, entry, state.product_url)
-        entry.async_on_unload(lookup.async_cancel)
-        await lookup.async_start()
+        await DrinkLookup(hass, entry, state.product_url).async_start()
     return True
 
 

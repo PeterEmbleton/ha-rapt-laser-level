@@ -7,7 +7,7 @@
  */
 
 const DOMAIN = "rapt_laser_level";
-const VERSION = "0.3.3";
+const VERSION = "0.4.0";
 const POURING = "Rapid readings (pour)";
 
 const DEFAULTS = {
@@ -18,7 +18,59 @@ const DEFAULTS = {
   show_image: true,
   show_volume: true,
   show_temperature: true,
+  find_pictures: true,
 };
+
+// Missing drink pictures are looked up from the viewer's browser: KegLand's
+// shop refuses Home Assistant's own requests but answers browsers. Each
+// product is tried at most once per page load and once every 6 hours.
+const LOOKUP_GAP_MS = 6 * 3600 * 1000;
+const attempted = new Set();
+
+function shopifyFeedUrl(productUrl) {
+  try {
+    const u = new URL(productUrl);
+    if (u.protocol !== "https:" || !u.pathname.includes("/products/")) return null;
+    let path = u.pathname.replace(/\/+$/, "");
+    if (!path.endsWith(".js")) path += ".js";
+    return u.origin + path;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function findPicture(hass, drinkEntity) {
+  const attrs = hass.states[drinkEntity]?.attributes || {};
+  const productUrl = attrs.product_url;
+  if (!productUrl || attrs.entity_picture || attempted.has(productUrl)) return;
+  attempted.add(productUrl);
+  const key = `rapt-keg-card:lookup:${productUrl}`;
+  try {
+    if (Date.now() - Number(localStorage.getItem(key) || 0) < LOOKUP_GAP_MS) return;
+    localStorage.setItem(key, String(Date.now()));
+  } catch (e) {
+    /* storage unavailable: the per-page-load limit still applies */
+  }
+  const feed = shopifyFeedUrl(productUrl);
+  if (!feed) return;
+  try {
+    const resp = await fetch(feed, { credentials: "omit" });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    let image = data.featured_image || (data.images || [])[0];
+    if (!image) return;
+    if (image.startsWith("//")) image = "https:" + image;
+    await hass.callWS({
+      type: `${DOMAIN}/drink_found`,
+      entity_id: drinkEntity,
+      product_url: productUrl,
+      image,
+      title: data.title || null,
+    });
+  } catch (e) {
+    console.debug("rapt-keg-card: picture lookup failed", productUrl, e);
+  }
+}
 
 // Entities are found by translation key; the entity-id suffix is a fallback
 // for installs whose registry hasn't picked the keys up yet.
@@ -86,6 +138,7 @@ class RaptKegCard extends HTMLElement {
             { name: "show_image", selector: { boolean: {} } },
             { name: "show_volume", selector: { boolean: {} } },
             { name: "show_temperature", selector: { boolean: {} } },
+            { name: "find_pictures", selector: { boolean: {} } },
           ],
         },
       ],
@@ -98,6 +151,7 @@ class RaptKegCard extends HTMLElement {
           show_image: "Show picture",
           show_volume: "Show volume",
           show_temperature: "Show temperature",
+          find_pictures: "Find missing pictures",
         })[s.name],
     };
   }
@@ -112,6 +166,10 @@ class RaptKegCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._render();
+    // Saving needs an admin; other viewers just see what's there.
+    if (this._config?.find_pictures && hass.user?.is_admin) {
+      for (const k of this._kegs || []) if (k.drink) findPicture(hass, k.drink);
+    }
   }
 
   getCardSize() {

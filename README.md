@@ -17,7 +17,7 @@ Each sensor becomes a device with these entities:
 | Battery | Battery % (diagnostic) |
 | Activity | `Idle`, `Single reading` or `Rapid readings (pour)` |
 | Status code / Remaining height / Last reading / Signal strength | Diagnostics (signal strength is disabled by default) |
-| Drink | The drink's name, with its picture as the entity picture |
+| Drink | The drink's name, with its picture as the entity picture, and the picture lookup's status as attributes |
 | Drink image | The drink's picture, for picture cards (only created when a picture is set) |
 
 ## Requirements
@@ -63,11 +63,12 @@ Saving the options reloads that keg; no restart needed.
 
 ## Drink picture lookups
 
-The shop is only asked when a keg has a product page URL and no Image URL or Drink of its own, and each lookup is one request (two for non-Shopify sites). There is no regular polling:
+The picture and name come from the keg's **Product page URL**, unless you fill in **Image URL** and **Drink** yourself. There is no polling:
 
-- **No picture yet:** try straight away, and if the shop is busy or rate-limiting (KegLand sometimes answers 429), try again after 15 min, 1 h, 3 h, 6 h, 12 h, then 1, 2, 4, 8 and 16 days, then once a month. A longer wait asked for by the shop is respected.
-- **Picture found:** check once a month whether it has changed (plus a random delay of up to a day, so kegs don't all ask at once).
-- The schedule is saved, so restarting Home Assistant or reloading a keg doesn't trigger extra lookups. Changing the product URL starts afresh.
+- **Home Assistant asks once** when the product URL is set or changed: one request (two for non-Shopify sites), no retries, no periodic checks. The attempt is remembered, so restarts don't repeat it.
+- **KegLand refuses Home Assistant's own requests** ("429 Too Many Requests"), even though it answers browsers. So for Shopify shops like KegLand, the **RAPT Keg card** looks a missing picture up from your browser when an admin views the dashboard, as a normal visitor would, and hands it to Home Assistant to save. It tries each product at most once every 6 hours, and stops once the picture is saved. Turn this off with `find_pictures: false`.
+- The keg's **Drink** sensor shows `lookup_last_attempt` and `lookup_last_result` (`found`, `found by the dashboard card`, or why it failed).
+- Still nothing? Open the product page, copy the image address into **Image URL**, and set **Drink** yourself.
 
 ## How often it updates
 
@@ -86,6 +87,7 @@ critical: 10           # bar turns red at or below this %
 show_image: true
 show_volume: true
 show_temperature: true
+find_pictures: true   # look missing drink pictures up from your browser
 ```
 
 It finds every keg by itself and shows its drink picture, name, tap, a level bar, litres and temperature, plus "pouring now" during a pour. Tapping a keg opens its level history. After updating the integration, refresh the browser (or clear the app's frontend cache) to get the new card.
