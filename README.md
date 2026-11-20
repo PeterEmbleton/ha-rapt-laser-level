@@ -17,6 +17,7 @@ Each sensor becomes a device with these entities:
 | Battery | Battery % (diagnostic) |
 | Activity | `Idle`, `Single reading` or `Rapid readings (pour)` |
 | Status code / Remaining height / Last reading / Signal strength | Diagnostics (signal strength is disabled by default) |
+| Last pour | Litres in the most recent measured pour, with `poured_at` |
 | Drink | The drink's name, with its picture as the entity picture, and the picture lookup's status as attributes |
 | Drink image | The drink's picture, for picture cards (only created when a picture is set) |
 
@@ -60,6 +61,34 @@ Press the sensor's Bluetooth button once to make it send a reading straight away
 Level % = (empty − distance) ÷ (empty − full), clamped to 0–100. Volume = capacity × level. This assumes a straight-sided keg.
 
 Saving the options reloads that keg; no restart needed.
+
+## Pours
+
+The sensor switches to rapid readings whenever the surface moves, which also happens without a pour (foam settling after gassing or moving the keg, vibration), and single readings wobble by several millimetres. So the integration measures each pour instead of trusting that mode: it compares the last calm reading before the burst with the first calm reading after it (or the median of the burst's last five readings if the sensor just goes quiet). Only a drop of **0.2 L or more** counts. A drop between two calm readings counts too, in case Home Assistant missed the burst.
+
+Each pour updates the keg's **Last pour** sensor and fires a `rapt_laser_level_pour` event:
+
+```yaml
+event_type: rapt_laser_level_pour
+data:
+  entry_id: ...
+  device_id: ...
+  tap: Tap 3        # the keg's name
+  drink: Ginger Beer
+  litres: 0.46
+```
+
+Example automation:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: rapt_laser_level_pour
+actions:
+  - action: notify.notify
+    data:
+      message: "{{ trigger.event.data.drink }}: {{ trigger.event.data.litres }} L poured from {{ trigger.event.data.tap }}"
+```
 
 ## Drink picture lookups
 

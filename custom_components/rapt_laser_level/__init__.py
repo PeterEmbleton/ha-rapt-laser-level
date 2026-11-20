@@ -16,7 +16,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
@@ -29,12 +29,21 @@ from .const import (
     CACHE_KEY,
     DOMAIN,
     POUR_ENDED_AFTER_S,
+    POUR_MIN_L,
+    EVENT_POUR,
+    CONF_CAPACITY_L,
+    CONF_EMPTY_MM,
+    CONF_FULL_MM,
+    DEFAULT_CAPACITY_L,
+    DEFAULT_EMPTY_MM,
+    DEFAULT_FULL_MM,
     RAPT_MANUFACTURER_ID,
     STALE_AFTER_S,
 )
 from .drink import clean_product_url, tidy_title
 from . import websocket
 from .lookup import DrinkLookup, async_forget
+from .pour import Pour, PourTracker
 from .parser import LaserReading, decode
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,6 +89,7 @@ class LaserState:
     cancel_pour_timer: Callable[[], None] | None = None
     # Drink-picture lookup schedule, shown on the Drink sensor.
     lookup: dict[str, Any] | None = None
+    pour: PourTracker = field(default_factory=PourTracker)
     listeners: list[Callable[[], None]] = field(default_factory=list)
 
     @callback
@@ -129,6 +139,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
         state.last_change = prev.last_change
         state.rssi = prev.rssi
         state.available = True
+    if prev is not None:
+        state.pour = prev.pour
 
     opts = entry.options
     state.drink = (opts.get(CONF_DRINK) or "").strip() or None
@@ -147,6 +159,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
             state.drink = state.drink or tidy_title(cached.get("title"))
         needs_lookup = True
 
+    span_mm = opts.get(CONF_EMPTY_MM, DEFAULT_EMPTY_MM) - opts.get(CONF_FULL_MM, DEFAULT_FULL_MM)
+    mm_to_l = opts.get(CONF_CAPACITY_L, DEFAULT_CAPACITY_L) / span_mm if span_mm > 0 else 0.0
+
+    @callback
+    def _poured(pour: Pour | None) -> None:
+        if pour is None:
+            return
+        device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, address)})
+        hass.bus.async_fire(
+            EVENT_POUR,
+            {
+                "entry_id": entry.entry_id,
+                "device_id": device.id if device else None,
+                "tap": entry.title,
+                "drink": state.drink,
+                "litres": pour.litres,
+            },
+        )
+
     @callback
     def _on_advert(
         service_info: bluetooth.BluetoothServiceInfoBleak,
@@ -163,6 +194,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
         if reading is None:
             return
         state.reading = reading
+        _poured(state.pour.reading(reading, dt_util.utcnow(), mm_to_l, POUR_MIN_L))
         state.last_seen = dt_util.utcnow()
         state.last_change = monotonic_time_coarse()
         state.available = True
@@ -179,6 +211,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: RaptLaserConfigEntry) ->
     @callback
     def _pour_check(_now: datetime) -> None:
         state.cancel_pour_timer = None
+        _poured(state.pour.quiet(dt_util.utcnow(), mm_to_l, POUR_MIN_L))
         state.async_notify()
 
     @callback

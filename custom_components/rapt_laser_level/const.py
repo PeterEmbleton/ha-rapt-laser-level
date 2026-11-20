@@ -31,3 +31,9 @@ STALE_AFTER_S = 150 * 60
 # While pouring the sensor sends about one reading a second (status 3). This
 # long with no new reading means the pour has finished.
 POUR_ENDED_AFTER_S = 30
+
+# A pour only counts if the settled level fell by at least this much (L).
+# Single readings wobble by several mm (about 0.2 L in a 19 L keg).
+POUR_MIN_L = 0.2
+# Fired on the event bus for each measured pour.
+EVENT_POUR = f"{DOMAIN}_pour"
