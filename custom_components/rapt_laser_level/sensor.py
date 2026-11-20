@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
+    RestoreSensor,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
@@ -184,7 +185,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     async_add_entities(
-        [*(LaserSensor(entry, d) for d in DESCRIPTIONS), DrinkSensor(entry)]
+        [*(LaserSensor(entry, d) for d in DESCRIPTIONS), DrinkSensor(entry), LastPourSensor(entry)]
     )
 
 
@@ -282,3 +283,45 @@ class LaserSensor(SensorEntity):
     @callback
     def _handle_update(self) -> None:
         self.async_write_ha_state()
+
+
+class LastPourSensor(RestoreSensor):
+    """Litres in the most recent measured pour (see pour.py)."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_name = "Last pour"
+    _attr_translation_key = "last_pour"
+    _attr_icon = "mdi:beer"
+    _attr_device_class = SensorDeviceClass.VOLUME
+    _attr_native_unit_of_measurement = UnitOfVolume.LITERS
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, entry: RaptLaserConfigEntry) -> None:
+        self._state = entry.runtime_data
+        self._attr_unique_id = f"{self._state.address}_last_pour"
+        self._attr_device_info = keg_device_info(entry)
+        self._shown = None
+
+    async def async_added_to_hass(self) -> None:
+        if (pour := self._state.pour.last_pour) is not None:
+            self._show(pour)
+        elif (last := await self.async_get_last_sensor_data()) is not None:
+            self._attr_native_value = last.native_value
+            if (old := await self.async_get_last_state()) is not None:
+                self._attr_extra_state_attributes = {
+                    k: v for k, v in old.attributes.items() if k == "poured_at"
+                }
+        self.async_on_remove(self._state.async_add_listener(self._handle_update))
+
+    def _show(self, pour) -> None:
+        self._shown = pour
+        self._attr_native_value = pour.litres
+        self._attr_extra_state_attributes = {"poured_at": pour.at.isoformat()}
+
+    @callback
+    def _handle_update(self) -> None:
+        pour = self._state.pour.last_pour
+        if pour is not None and pour is not self._shown:
+            self._show(pour)
+            self.async_write_ha_state()
